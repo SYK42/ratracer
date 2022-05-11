@@ -12,6 +12,7 @@
 #include <flint/nmod_vec.h>
 #include <stdint.h>
 #include <string.h>
+#include <string>
 
 #include <unordered_map>
 #include <vector>

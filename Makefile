@@ -1,5 +1,7 @@
-FIREFLY_CFLAGS?=-Ifirefly/include
-FIREFLY_LDFLAGS?=firefly/lib/libfirefly.a
+#FIREFLY_CFLAGS?=-Ifirefly/include
+#FIREFLY_LDFLAGS?=firefly/lib/libfirefly.a
+FIREFLY_CFLAGS=`pkg-config --cflags firefly`
+FIREFLY_LDFLAGS=`pkg-config --libs firefly`
 
 XCFLAGS=${CFLAGS} \
 	-O3 -g -std=c++14 -pedantic \
