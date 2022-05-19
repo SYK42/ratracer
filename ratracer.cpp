@@ -113,6 +113,8 @@ Ss{AUTHORS}
 #include <string.h>
 #include <time.h>
 #include <dlfcn.h>
+#include <map>
+#include <thread>
 
 #include <firefly/Reconstructor.hpp>
 
@@ -327,29 +329,40 @@ cmd_unsafe_optimize(int argc, char *argv[])
 namespace firefly {
     class TraceBB : public BlackBoxBase<TraceBB> {
         const Trace &tr;
-        std::vector<ncoef_t> data;
+        // std::vector<ncoef_t> data;
+        std::vector<std::vector<ncoef_t>> thread_to_data;
+
     public:
-        TraceBB(const Trace &tr) : tr(tr) {
-            data.resize(tr.nlocations);
+        TraceBB(const Trace &tr, uint32_t nthreads) : tr(tr) {
+
+            for (uint32_t tindex = 0; tindex < nthreads; tindex ++)
+            {
+                std::vector<ncoef_t> data;
+                data.resize(tr.nlocations);
+                thread_to_data.emplace_back(data);
+            }
         }
+
         std::vector<FFInt>
-        operator()(const std::vector<FFInt> &inputs) {
+        operator()(const std::vector<FFInt> &inputs, uint32_t thread_id) {
             if (sizeof(FFInt) != sizeof(ncoef_t)) crash("reconstruct: FireFly::FFInt is not a machine word");
+
             nmod_t mod;
             mod.n = FFInt::p;
             mod.ninv = FFInt::p_inv;
             count_leading_zeros(mod.norm, mod.n);
             std::vector<FFInt> outputs(tr.noutputs, 0);
-            if (tr_evaluate(tr, (ncoef_t*)&inputs[0], (ncoef_t*)&outputs[0], &data[0], mod) != 0) crash("reconstruct: evaluation failed");
+            if (tr_evaluate(tr, (ncoef_t*)&inputs[0], (ncoef_t*)&outputs[0], &thread_to_data[thread_id][0], mod) != 0) crash("reconstruct: evaluation failed");
             return outputs;
         }
         template <int N> std::vector<FFIntVec<N>>
-        operator()(const std::vector<FFIntVec<N>> &inputs) {
+        operator()(const std::vector<FFIntVec<N>> &inputs, uint32_t thread_id) {
             (void)inputs;
             crash("reconstruct: FireFly bunches are not supported yet");
         }
         inline void prime_changed() { }
     };
+
 }
 
 static int
@@ -363,7 +376,7 @@ cmd_reconstruct(int argc, char *argv[])
         else if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
         else break;
     }
-    firefly::TraceBB ffbb(tr.t);
+    firefly::TraceBB ffbb(tr.t, nthreads);
     firefly::Reconstructor<firefly::TraceBB> re(tr.t.ninputs, nthreads, 1, ffbb, firefly::Reconstructor<firefly::TraceBB>::IMPORTANT);
     re.enable_factor_scan();
     re.enable_shift_scan();
