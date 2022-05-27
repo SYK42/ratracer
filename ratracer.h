@@ -15,11 +15,13 @@
 #include <string>
 
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
+#include <string>
 
 #define API __attribute__((unused)) static
 #define noreturn __attribute__((noreturn))
-#define packed __attribute__((packed))
+#define PACKED __attribute__((packed))
 #define restrict __restrict__
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
@@ -121,6 +123,7 @@ struct Value { nloc_t loc; ncoef_t n; };
 //   - dst = of_negint #a
 //   - dst = of_longint #a
 // - dst/a/-:
+//   - dst = copy a
 //   - dst = inv a
 //   - dst = neginv a
 //   - dst = neg a
@@ -136,13 +139,14 @@ struct Value { nloc_t loc; ncoef_t n; };
 // - -/-/-:
 //   - ___ = nop
 // Format:
-// - op:1 a:5 b:5 c:5
+// - op:1 dst:5 a:5 b:5
 
 enum {
     OP_OF_VAR,
     OP_OF_INT,
     OP_OF_NEGINT,
     OP_OF_LONGINT,
+    OP_COPY,
     OP_INV,
     OP_NEGINV,
     OP_NEG,
@@ -153,10 +157,11 @@ enum {
     OP_TO_INT,
     OP_TO_NEGINT,
     OP_TO_RESULT,
-    OP_NOP
+    OP_NOP,
+    OP_HALT
 };
 
-struct packed Instruction {
+struct __attribute__((packed,aligned(8))) Instruction {
     uint8_t op:8;
     uint64_t dst:40;
     uint64_t a:40;
@@ -164,6 +169,7 @@ struct packed Instruction {
 };
 
 #define IMM_MAX 0xFFFFFFFFFFll
+#define LOC_MAX IMM_MAX
 
 struct Trace {
     nloc_t ninputs;
@@ -178,8 +184,8 @@ struct Trace {
 struct Tracer {
     nmod_t mod;
     Trace t;
-    std::unordered_map<int64_t, Value> constants;
-    std::unordered_map<size_t, Value> variables;
+    std::unordered_map<int64_t, Value> const_cache;
+    std::unordered_map<size_t, Value> var_cache;
     NameTable var_names;
 };
 
@@ -208,16 +214,34 @@ ncoef_hash(size_t idx, ncoef_t mod)
     return val;
 }
 
+API void
+tr_append(const Instruction &i)
+{
+    tr.t.code.push_back(i);
+}
+
+API size_t
+tr_code_size()
+{
+    return tr.t.code.size();
+}
+
+API void
+tr_rollback_code(size_t size)
+{
+    tr.t.code.resize(size);
+}
+
 API Value
 tr_of_var(size_t idx)
 {
-    auto it = tr.variables.find(idx);
-    if (it == tr.variables.end()) {
+    auto it = tr.var_cache.find(idx);
+    if (it == tr.var_cache.end()) {
         ncoef_t val = ncoef_hash(idx, tr.mod.n);
-        tr.t.code.push_back(Instruction{OP_OF_VAR, tr.t.nlocations, (nloc_t)idx, 0});
+        tr_append(Instruction{OP_OF_VAR, tr.t.nlocations, (nloc_t)idx, 0});
         if (idx + 1 > tr.t.ninputs) tr.t.ninputs = idx + 1;
         Value v = Value{tr.t.nlocations++, val};
-        tr.variables[idx] = v;
+        tr.var_cache[idx] = v;
         return v;
     } else {
         return it->second;
@@ -227,19 +251,19 @@ tr_of_var(size_t idx)
 API Value
 tr_of_int(int64_t x)
 {
-    auto it = tr.constants.find(x);
-    if (it == tr.constants.end()) {
+    auto it = tr.const_cache.find(x);
+    if (it == tr.const_cache.end()) {
         ncoef_t c;
         if (x >= 0) {
-            tr.t.code.push_back(Instruction{OP_OF_INT, tr.t.nlocations, (nloc_t)x, 0});
+            tr_append(Instruction{OP_OF_INT, tr.t.nlocations, (nloc_t)x, 0});
             NMOD_RED(c, x, tr.mod);
         } else {
-            tr.t.code.push_back(Instruction{OP_OF_NEGINT, tr.t.nlocations, (nloc_t)-x, 0});
+            tr_append(Instruction{OP_OF_NEGINT, tr.t.nlocations, (nloc_t)-x, 0});
             NMOD_RED(c, -x, tr.mod);
             c = nmod_neg(c, tr.mod);
         }
         Value v = Value{tr.t.nlocations++, c};
-        tr.constants[x] = v;
+        tr.const_cache[x] = v;
         return v;
     } else {
         return it->second;
@@ -294,7 +318,7 @@ tr_of_fmpz(const fmpz_t x)
     if (fmpz_fits_si(x) && (fmpz_bits(x) < 40)) {
         return tr_of_int(fmpz_get_si(x));
     } else {
-        tr.t.code.push_back(Instruction{OP_OF_LONGINT, tr.t.nlocations, (nloc_t)tr.t.constants.size(), 0});
+        tr_append(Instruction{OP_OF_LONGINT, tr.t.nlocations, (nloc_t)tr.t.constants.size(), 0});
         fmpz xx;
         fmpz_init_set(&xx, x);
         tr.t.constants.push_back(xx);
@@ -305,7 +329,7 @@ tr_of_fmpz(const fmpz_t x)
 API Value
 tr_mul(const Value &a, const Value &b)
 {
-    tr.t.code.push_back(Instruction{OP_MUL, tr.t.nlocations, a.loc, b.loc});
+    tr_append(Instruction{OP_MUL, tr.t.nlocations, a.loc, b.loc});
     return Value{tr.t.nlocations++, nmod_mul(a.n, b.n, tr.mod)};
 }
 
@@ -317,7 +341,7 @@ tr_pow(const Value &base, unsigned exp)
     case 1: return base;
     case 2: return tr_mul(base, base);
     default:
-        tr.t.code.push_back(Instruction{OP_POW, tr.t.nlocations, base.loc, exp});
+        tr_append(Instruction{OP_POW, tr.t.nlocations, base.loc, exp});
         return Value{tr.t.nlocations++, nmod_pow_ui(base.n, exp, tr.mod)};
     }
 }
@@ -325,14 +349,14 @@ tr_pow(const Value &base, unsigned exp)
 API Value
 tr_add(const Value &a, const Value &b)
 {
-    tr.t.code.push_back(Instruction{OP_ADD, tr.t.nlocations, a.loc, b.loc});
+    tr_append(Instruction{OP_ADD, tr.t.nlocations, a.loc, b.loc});
     return Value{tr.t.nlocations++, _nmod_add(a.n, b.n, tr.mod)};
 }
 
 API Value
 tr_sub(const Value &a, const Value &b)
 {
-    tr.t.code.push_back(Instruction{OP_SUB, tr.t.nlocations, a.loc, b.loc});
+    tr_append(Instruction{OP_SUB, tr.t.nlocations, a.loc, b.loc});
     return Value{tr.t.nlocations++, _nmod_sub(a.n, b.n, tr.mod)};
 }
 
@@ -352,21 +376,21 @@ tr_addmul(const Value &a, const Value &b, const Value &bfactor)
 API Value
 tr_inv(const Value &a)
 {
-    tr.t.code.push_back(Instruction{OP_INV, tr.t.nlocations, a.loc, 0});
+    tr_append(Instruction{OP_INV, tr.t.nlocations, a.loc, 0});
     return Value{tr.t.nlocations++, nmod_inv(a.n, tr.mod)};
 }
 
 API Value
 tr_neginv(const Value &a)
 {
-    tr.t.code.push_back(Instruction{OP_NEGINV, tr.t.nlocations, a.loc, 0});
+    tr_append(Instruction{OP_NEGINV, tr.t.nlocations, a.loc, 0});
     return Value{tr.t.nlocations++, nmod_neg(nmod_inv(a.n, tr.mod), tr.mod)};
 }
 
 API Value
 tr_neg(const Value &a)
 {
-    tr.t.code.push_back(Instruction{OP_NEG, tr.t.nlocations, a.loc, 0});
+    tr_append(Instruction{OP_NEG, tr.t.nlocations, a.loc, 0});
     return Value{tr.t.nlocations++, nmod_neg(a.n, tr.mod)};
 }
 
@@ -380,9 +404,9 @@ API void
 tr_to_int(const Value &a, int64_t n)
 {
     if (n >= 0) {
-        tr.t.code.push_back(Instruction{OP_TO_INT, 0, a.loc, (uint64_t)n});
+        tr_append(Instruction{OP_TO_INT, 0, a.loc, (uint64_t)n});
     } else {
-        tr.t.code.push_back(Instruction{OP_TO_NEGINT, 0, a.loc, (uint64_t)-n});
+        tr_append(Instruction{OP_TO_NEGINT, 0, a.loc, (uint64_t)-n});
     }
 }
 
@@ -390,7 +414,7 @@ API void
 tr_to_result(size_t outidx, const Value &src)
 {
     if (outidx + 1 > tr.t.noutputs) tr.t.noutputs = outidx + 1;
-    tr.t.code.push_back(Instruction{OP_TO_RESULT, 0, src.loc, outidx});
+    tr_append(Instruction{OP_TO_RESULT, 0, src.loc, outidx});
 }
 
 API void
@@ -429,7 +453,7 @@ tr_set_result_name(size_t idx, const char *name)
  * - { u32 len; u8 value[len]; } for each big constant (GMP format)
  */
 
-struct packed TraceFileHeader {
+struct PACKED TraceFileHeader {
     uint64_t magic;
     uint32_t ninputs;
     uint32_t noutputs;
@@ -438,7 +462,7 @@ struct packed TraceFileHeader {
     uint64_t ninstructions;
 };
 
-static const uint64_t RATRACER_MAGIC = 0x3130303043524052ull;
+static const uint64_t RATRACER_MAGIC = 0x3230303043524052ull;
 
 API int
 tr_export(const char *filename, const Trace &t)

@@ -4,7 +4,7 @@ FIREFLY_CFLAGS=`pkg-config --cflags firefly`
 FIREFLY_LDFLAGS=`pkg-config --libs firefly`
 
 XCFLAGS=${CFLAGS} \
-	-O3 -g -std=c++14 -pedantic \
+	-O3 -g -std=c++14 \
 	-Wall -Wextra -Wfatal-errors \
 	-pipe -fno-omit-frame-pointer \
 	${FIREFLY_CFLAGS}

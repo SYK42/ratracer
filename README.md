@@ -1,6 +1,6 @@
 # RATRACER
 
-*Rational Tracer* (ratracer) is a C++ library and a toolbox for
+Rational Tracer (*ratracer*) is a C++ library and a toolbox for
 reconstructing rational expressions via modular arithmetics.
 
 The idea of modular methods is to execute your algorithm --
@@ -15,7 +15,7 @@ itself many times, re-run just the trace -- a much faster and
 simpler thing to do.
 
 *Ratracer* implements this idea via the `ratracer.h` library
-that can records traces of arbitrary rational operations. The
+that can record traces of arbitrary rational operations. The
 `ratracer` tool is then able to read, optimize, and ultimately
 reconstruct these traces.
 
@@ -23,7 +23,7 @@ The *ratracer* tool additonally contains means to:
 - trace arbitrary arithmentic expressions from textual files;
 - trace the solutions of systems of linear equations.
 
-**Ratracer is a work in progress, stability is not guaranteed.**
+**Ratracer is a work in progress, stability is not yet guaranteed.**
 
 # BUILDING
 
@@ -31,8 +31,9 @@ To use the *ratracer* library just include the `ratracer.h` file;
 there is no build step.
 
 To build the *ratracer* tool, first install [GMP], [MPFR],
-[Flint], and [FireFly] libraries, then adjust the FIREFLY_CFLAGS
-and FIREFLY_LDFLAGS variables in the Makefile, and run:
+[Flint], and [FireFly] libraries (`bb-per-thread` branch), then
+adjust the `FIREFLY_CFLAGS` and `FIREFLY_LDFLAGS` variables in
+the Makefile, and finally run:
 
     make
 
@@ -45,8 +46,8 @@ and FIREFLY_LDFLAGS variables in the Makefile, and run:
 
 ## NAME
 
-Rational Toolbox (`ratracer`) -- a tool for reconstructing
-rational expressions.
+Rational Tracer Toolbox (`ratracer`) -- a tool for reconstructing
+rational expressions via modular arithmetics.
 
 ## SYNOPSYS
 
@@ -114,7 +115,21 @@ To solve a linear system of equations:
 
   Measure the evaluation speed of the current trace.
 
-* **trace-expression** *file.txt*
+* **set** *name* *expression*
+
+  Set the given variable to the given expression in
+  the further traces created by **trace-expression**,
+  **load-equations**, or loaded via **load-trace**.
+
+* **unset** *name*
+
+  Remove the mapping specified by **set**.
+
+* **load-trace** *file.trace*
+
+  Load the given trace.
+
+* **trace-expression** *filename*
 
   Load a rational expression from a file and trace its
   evaluation.
@@ -123,9 +138,11 @@ To solve a linear system of equations:
 
   Optimize the current trace.
 
-* **reconstruct** [`--to`=*filename*] [`--threads`=*n*]
+* **reconstruct** [`--to`=*filename*] [`--threads`=*n*] [`--factor-scan`] [`--shift-scan`]
 
-  Reconstruct the rational form of the current trace.
+  Reconstruct the rational form of the current trace using
+  the FireFly library. Optionally enable FireFly's factor
+  scan and/or shift scan.
 
 * **define-family** *name* [`--indices`=*n*]
 
@@ -158,6 +175,11 @@ To solve a linear system of equations:
 
   List the unreduced items of the equations filtered by
   the given family/max-r/max-s/max-d values.
+
+* **dump-equations** [`--to`=*filename*]
+
+  Dump the current list of equations with numeric coefficients.
+  This should only be needed for debugging.
 
 * **sh** *command*
 
