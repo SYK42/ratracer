@@ -897,6 +897,8 @@ cmd_unfinalize(int argc, char *argv[])
     return 0;
 }
 
+#define BB_PER_THREAD 1
+
 #include <firefly/Reconstructor.hpp>
 
 #define TR_EVAL_BEGIN(tr, codeptr, inmem) \

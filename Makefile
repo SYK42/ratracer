@@ -73,7 +73,7 @@ build/zlib.tar.xz: build/.dir
 
 build/firefly.tar.gz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"https://github.com/magv/firefly/archive/refs/heads/ratracer.tar.gz"
+		"https://gitlab.com/firefly-library/firefly/-/archive/bb-per-thread/firefly-bb-per-thread.tar.gz"
 
 BUILD=${CURDIR}/build
 DEP_CFLAGS=-I${BUILD}/include -O3 -fno-omit-frame-pointer -fdata-sections -ffunction-sections
